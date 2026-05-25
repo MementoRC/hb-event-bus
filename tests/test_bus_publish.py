@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
-
-import pytest
+from typing import TYPE_CHECKING
 
 from event_bus.bus import EventBus
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_publish_invokes_subscribers_in_registration_order() -> None:
