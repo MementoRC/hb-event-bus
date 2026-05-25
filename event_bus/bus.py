@@ -97,3 +97,33 @@ class EventBus:
             else:
                 sync_handlers.append(sub.handler)
         invoke_sync_handlers(event_type, payload, sync_handlers)
+
+    async def apublish(self, event_type: str, payload: Any = None) -> None:
+        """Async dispatch: await async handlers sequentially; invoke sync handlers inline.
+
+        Args:
+            event_type: The string key identifying the event channel.
+            payload:    Arbitrary value forwarded to each handler.
+
+        Behaviour:
+        - Takes a snapshot of current subscriptions before iterating, so handlers
+          that subscribe/unsubscribe during dispatch do not affect the current call.
+        - Handlers are invoked in registration order regardless of sync/async kind.
+        - Async handlers are awaited sequentially (not concurrently via gather),
+          preserving ordering guarantees.
+        - Sync handlers are invoked inline at their position in registration order.
+        - Exceptions from any handler are logged and isolated — subsequent handlers
+          still run.
+        - An empty *event_type* logs a DEBUG message and dispatches to no handlers.
+        """
+        if not event_type:
+            logger.debug("apublish called with empty event_type")
+        subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
+        for sub in subs:
+            try:
+                if inspect.iscoroutinefunction(sub.handler):
+                    await sub.handler(payload)
+                else:
+                    sub.handler(payload)
+            except Exception:  # noqa: BLE001
+                logger.exception("handler failed on event_type=%r", event_type)
