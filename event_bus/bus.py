@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import inspect
+import logging
 from collections import defaultdict
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
+from event_bus._internal import invoke_sync_handlers, schedule_async_handler
 from event_bus.subscription import Subscription
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+logger = logging.getLogger("event_bus")
 
 
 class EventBus:
@@ -59,3 +64,36 @@ class EventBus:
     def get_subscribers(self, event_type: str) -> tuple[Subscription, ...]:
         """Return a snapshot tuple of active subscriptions for *event_type*."""
         return tuple(self._subscriptions.get(event_type, ()))
+
+    # ------------------------------------------------------------------
+    # Public dispatch API
+    # ------------------------------------------------------------------
+
+    def publish(self, event_type: str, payload: Any = None) -> None:
+        """Synchronous dispatch: invoke sync handlers inline; schedule async handlers.
+
+        Args:
+            event_type: The string key identifying the event channel.
+            payload:    Arbitrary value forwarded to each handler.
+
+        Behaviour:
+        - Takes a snapshot of current subscriptions before iterating, so handlers
+          that subscribe/unsubscribe during dispatch do not affect the current call.
+        - Sync handlers are invoked in registration order; exceptions are logged
+          and isolated — subsequent handlers still run.
+        - Async handlers are scheduled on the running event loop via
+          :func:`asyncio.ensure_future`; if there is no running loop a WARNING is
+          emitted (once per bus instance) and the handler is silently skipped.
+        - An empty *event_type* logs a DEBUG message and dispatches to no handlers
+          (empty string keys are never subscribed to in normal usage).
+        """
+        if not event_type:
+            logger.debug("publish called with empty event_type")
+        subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
+        sync_handlers = []
+        for sub in subs:
+            if inspect.iscoroutinefunction(sub.handler):
+                schedule_async_handler(event_type, payload, sub.handler, bus_id=id(self))
+            else:
+                sync_handlers.append(sub.handler)
+        invoke_sync_handlers(event_type, payload, sync_handlers)
