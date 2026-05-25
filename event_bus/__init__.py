@@ -5,7 +5,7 @@ from typing import Any
 
 from event_bus.__about__ import __version__
 from event_bus.bus import EventBus
-from event_bus.subscription import Subscription, Handler
+from event_bus.subscription import Handler, Subscription
 
 EventPayload = Any
 SyncHandler = Callable[[EventPayload], None]
@@ -17,5 +17,4 @@ __all__ = [
     "Handler",
     "SyncHandler",
     "AsyncHandler",
-    "__version__",
 ]
