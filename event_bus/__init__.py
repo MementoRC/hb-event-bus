@@ -12,9 +12,10 @@ SyncHandler = Callable[[EventPayload], None]
 AsyncHandler = Callable[[EventPayload], Awaitable[None]]
 
 __all__ = [
-    "EventBus",
-    "Subscription",
-    "Handler",
-    "SyncHandler",
     "AsyncHandler",
+    "EventBus",
+    "Handler",
+    "Subscription",
+    "SyncHandler",
+    "__version__",
 ]

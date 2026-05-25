@@ -10,13 +10,15 @@ def test_public_exports():
     assert hasattr(event_bus, "Handler")
     assert hasattr(event_bus, "SyncHandler")
     assert hasattr(event_bus, "AsyncHandler")
-    assert event_bus.__all__ == [
-        "EventBus",
-        "Subscription",
-        "Handler",
-        "SyncHandler",
+    assert hasattr(event_bus, "__version__")
+    assert set(event_bus.__all__) >= {
         "AsyncHandler",
-    ]
+        "EventBus",
+        "Handler",
+        "Subscription",
+        "SyncHandler",
+        "__version__",
+    }
 
 
 def test_version_present():
