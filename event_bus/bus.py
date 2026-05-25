@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from event_bus.subscription import Subscription
@@ -50,10 +51,8 @@ class EventBus:
         """
         subs = self._subscriptions.get(subscription.event_type)
         if subs is not None:
-            try:
+            with suppress(ValueError):
                 subs.remove(subscription)
-            except ValueError:
-                pass  # already removed — idempotent no-op
         # Always mark inactive so repeated calls are harmless.
         subscription._active = False
 
