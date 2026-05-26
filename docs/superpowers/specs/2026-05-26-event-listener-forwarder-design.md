@@ -117,19 +117,16 @@ from event_bus.listener import EventListener
 from event_bus._internal import _is_async_handler  # replaces inline iscoroutinefunction
 ```
 
-`publish()` snapshot loop:
+`publish()` snapshot loop (injection deferred to helpers so async-scheduled handlers get fresh context at await time, not at schedule time):
 
 ```python
 for sub in subs:
     handler = sub.handler
-    if isinstance(handler, EventListener):
-        handler.current_event_type = event_type
-        handler.current_event_bus = self
     if _is_async_handler(handler):
-        schedule_async_handler(event_type, payload, handler, bus_id=id(self))
+        schedule_async_handler(event_type, payload, handler, bus=self)
     else:
         sync_handlers.append(handler)
-invoke_sync_handlers(event_type, payload, sync_handlers)
+invoke_sync_handlers(event_type, payload, sync_handlers, bus=self)
 ```
 
 `apublish()` loop:
@@ -149,29 +146,90 @@ for sub in subs:
         logger.exception("handler failed on event_type=%r", event_type)
 ```
 
-### `event_bus/_internal.py` — new helper
+### `event_bus/_internal.py` — additions
+
+Required imports (in addition to existing): `import inspect` (top of file).
 
 ```python
+import inspect
+from typing import Any
+
 def _is_async_handler(handler: Any) -> bool:
-    """True if handler is a coroutine function OR a class instance with async __call__."""
+    """True if handler should dispatch via the async (await) path.
+
+    Returns True when:
+    - handler is a coroutine function (``async def f(...)``), OR
+    - handler is a class instance whose ``__call__`` is a coroutine function.
+
+    The two branches do not overlap in practice: a plain coroutine function
+    returns True at the first check; a class instance returns False there
+    and falls through to probe ``__call__``. The branches are kept separate
+    rather than relying on ``getattr(handler, '__call__', None)`` for all
+    cases because that probe returns the function itself for plain functions,
+    which is semantically clearer than checking ``__call__`` on a function.
+    """
     if inspect.iscoroutinefunction(handler):
         return True
     call = getattr(handler, "__call__", None)
-    return call is not None and inspect.iscoroutinefunction(call)
+    if call is None:
+        return False
+    return inspect.iscoroutinefunction(call)
 ```
 
-Also extend `invoke_sync_handlers` to warn-and-close any coroutine returned from a sync dispatch path:
+Update `invoke_sync_handlers` to (a) take a `bus` keyword arg, (b) inject EventListener attrs immediately before each call, and (c) warn-and-close any coroutine returned from a sync dispatch path:
 
 ```python
-result = handler(payload)
-if inspect.iscoroutine(result):
-    result.close()
-    logger.warning(
-        "Sync dispatch received a coroutine from %r on topic=%r; "
-        "use apublish() or expose async __call__ via a real method.",
-        handler, event_type,
-    )
+def invoke_sync_handlers(event_type, payload, handlers, *, bus):
+    for handler in handlers:
+        if isinstance(handler, EventListener):
+            handler.current_event_type = event_type
+            handler.current_event_bus = bus
+        try:
+            result = handler(payload)
+            if inspect.iscoroutine(result):
+                result.close()
+                logger.warning(
+                    "Sync dispatch received a coroutine from %r on topic=%r; "
+                    "use apublish() or expose async __call__ via a real method.",
+                    handler, event_type,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("handler failed on event_type=%r", event_type)
 ```
+
+Update `schedule_async_handler` to (a) take a `bus` keyword arg, and (b) wrap the call in a coroutine that injects EventListener attrs RIGHT BEFORE awaiting, so async-scheduled handlers see the correct context at execution time rather than scheduling time:
+
+```python
+def schedule_async_handler(event_type, payload, handler, *, bus):
+    async def _runner():
+        if isinstance(handler, EventListener):
+            handler.current_event_type = event_type
+            handler.current_event_bus = bus
+        try:
+            await handler(payload)
+        except Exception:  # noqa: BLE001
+            logger.exception("async handler failed on event_type=%r", event_type)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # no running loop — warn once (existing behavior) and skip
+        return
+    asyncio.ensure_future(_runner(), loop=loop)
+```
+
+Importing `EventListener` in `_internal.py` would create a circular import (listener.py imports nothing from _internal.py, but bus.py imports both). Resolve by using a TYPE_CHECKING import + runtime isinstance via a lazy module reference:
+
+```python
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from event_bus.listener import EventListener
+
+def _is_event_listener(obj: Any) -> bool:
+    from event_bus.listener import EventListener  # local import avoids cycle
+    return isinstance(obj, EventListener)
+```
+
+Then use `_is_event_listener(handler)` instead of `isinstance(handler, EventListener)` in both helpers. The local import is cached after first call.
 
 ### `event_bus/__init__.py` — additions
 
@@ -192,13 +250,12 @@ __all__ = [
 ### Sync dispatch (`bus.publish("order.filled", payload)`)
 
 1. `publish` snapshots subscriptions for the topic.
-2. For each subscription:
-   - If handler is an `EventListener` instance: set `handler.current_event_type = topic`, `handler.current_event_bus = self`.
-   - Classify via `_is_async_handler`: async → schedule; sync → append.
-3. `invoke_sync_handlers` iterates sync list, calling each. Exceptions are logged + isolated.
-4. After dispatch returns, attrs on the listener instance remain set to the last-dispatch values.
+2. For each subscription: classify via `_is_async_handler` → async (schedule via `schedule_async_handler`) or sync (append to list).
+3. `invoke_sync_handlers` iterates the sync list. For each handler: if it's an `EventListener` instance, set `current_event_type` and `current_event_bus` IMMEDIATELY before calling. Then invoke. Exceptions are logged + isolated.
+4. For async-scheduled handlers, the wrapper coroutine inside `schedule_async_handler` sets the attrs at await time (not at schedule time), then awaits the handler. This ensures attrs are correct even if multiple `publish()` calls schedule the same listener concurrently — each scheduled coroutine writes its own context immediately before awaiting.
+5. After all dispatch completes, attrs on listener instances remain set to whichever dispatch wrote them last.
 
-**Invariant**: between the attr-write and the `handler(payload)` call there is no `await` and no other Python code that could overwrite the attrs. Sync listeners always see consistent context inside their `__call__`.
+**Invariant**: between the attr-write and the `handler(payload)` invocation there is no other Python code that could overwrite the attrs on THAT instance. Each EventListener instance has its own attrs; cross-listener iteration in the same loop does not interfere. Sync listeners always see consistent context inside their `__call__`.
 
 ### Async dispatch (`await bus.apublish(...)`)
 
@@ -291,11 +348,13 @@ If `_is_async_handler` returns `False` for an actually-async handler (e.g., a wr
 **`tests/test_bus_apublish.py` (+1)**
 - `test_apublish_injects_event_info_before_each_await`
 
-**`tests/test_internal.py` (+4)**
+**`tests/test_internal.py` (+6)**
 - `test_is_async_handler_plain_function_false`
 - `test_is_async_handler_plain_coroutine_function_true`
 - `test_is_async_handler_class_instance_with_async_call_true`
 - `test_is_async_handler_class_instance_with_sync_call_false`
+- `test_invoke_sync_handlers_warns_and_closes_coroutine` — unit test for the warn-and-close behavior in `invoke_sync_handlers`
+- `test_schedule_async_handler_injects_listener_attrs_before_await` — verifies the wrapper coroutine sets attrs at await time, not schedule time
 
 ### Out of scope
 
@@ -306,7 +365,7 @@ If `_is_async_handler` returns `False` for an actually-async handler (e.g., a wr
 
 ### Totals
 
-22 new tests. Repo: 44 → ~66.
+24 new tests. Repo: 44 → ~68.
 
 ---
 
