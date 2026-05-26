@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from event_bus.listener import EventListener
+from event_bus.bus import EventBus
+from event_bus.listener import EventForwarder, EventListener
 
 
 class TestEventListenerBase:
@@ -35,3 +36,40 @@ class TestEventListenerBase:
         c = Capturing()
         c("hello")
         assert captured == ["hello"]
+
+
+class TestEventForwarder:
+    def test_calls_to_function_with_payload(self) -> None:
+        captured: list[Any] = []
+        fwd = EventForwarder(captured.append)
+        fwd("payload")
+        assert captured == ["payload"]
+
+    def test_rejects_non_callable(self) -> None:
+        with pytest.raises(TypeError, match="must be callable"):
+            EventForwarder(None)  # type: ignore[arg-type]
+
+    def test_inherits_eventlistener(self) -> None:
+        fwd = EventForwarder(lambda _: None)
+        assert isinstance(fwd, EventListener)
+
+    def test_via_eventbus_publish_passes_payload(self) -> None:
+        bus = EventBus(name="test")
+        captured: list[Any] = []
+        fwd = EventForwarder(captured.append)
+        bus.subscribe("topic.x", fwd)
+        bus.publish("topic.x", {"v": 1})
+        assert captured == [{"v": 1}]
+
+    def test_isolated_on_exception(self) -> None:
+        bus = EventBus(name="test")
+        captured: list[Any] = []
+
+        def boom(_: Any) -> None:
+            raise RuntimeError("boom")
+
+        bus.subscribe("t", EventForwarder(boom))
+        bus.subscribe("t", EventForwarder(captured.append))
+        bus.publish("t", "payload")
+        # Second handler still runs despite first raising
+        assert captured == ["payload"]
