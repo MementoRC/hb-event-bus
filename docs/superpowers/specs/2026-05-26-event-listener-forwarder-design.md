@@ -117,7 +117,7 @@ from event_bus.listener import EventListener
 from event_bus._internal import _is_async_handler  # replaces inline iscoroutinefunction
 ```
 
-`publish()` snapshot loop (injection deferred to helpers so async-scheduled handlers get fresh context at await time, not at schedule time):
+`publish()` — REPLACE the existing for-loop (which uses `inspect.iscoroutinefunction(sub.handler)` and calls `schedule_async_handler(... bus_id=id(self))` and `invoke_sync_handlers(event_type, payload, sync_handlers)`) ENTIRELY with the block below. Both helper calls now take `bus=self` (was `bus_id=id(self)` and three-arg form). Injection is deferred to the helpers so async-scheduled handlers get fresh context at await time, not at schedule time:
 
 ```python
 for sub in subs:
@@ -129,7 +129,9 @@ for sub in subs:
 invoke_sync_handlers(event_type, payload, sync_handlers, bus=self)
 ```
 
-`apublish()` loop:
+Remove the existing `import inspect` from bus.py — `_is_async_handler` (imported from `_internal.py`) is now the sole classifier; `inspect.iscoroutinefunction` is no longer used directly in bus.py.
+
+`apublish()` — REPLACE the existing for-loop (which uses `inspect.iscoroutinefunction(sub.handler)`) ENTIRELY with the block below. The `isinstance(handler, EventListener)` check uses the imported class directly here (bus.py imports both `EventBus` and `EventListener`, no cycle):
 
 ```python
 for sub in subs:
@@ -146,14 +148,17 @@ for sub in subs:
         logger.exception("handler failed on event_type=%r", event_type)
 ```
 
-### `event_bus/_internal.py` — additions
+### `event_bus/_internal.py` — modifications
 
-Required imports (in addition to existing): `import inspect` (top of file).
+The existing file has: `invoke_sync_handlers(event_type, payload, handlers)`, `schedule_async_handler(event_type, payload, handler, *, bus_id=0)`, and `_run_async_handler(event_type, payload, handler)`. All three are MODIFIED (not deleted). Two new helpers are added: `_is_async_handler` and `_is_event_listener`.
+
+Add `import inspect` at the top of the file (alongside existing `import asyncio` / `import logging`).
+
+Add `from event_bus.bus import EventBus` to the existing `if TYPE_CHECKING:` block (for the new `bus: EventBus` keyword arg type hints).
+
+New helper `_is_async_handler`:
 
 ```python
-import inspect
-from typing import Any
-
 def _is_async_handler(handler: Any) -> bool:
     """True if handler should dispatch via the async (await) path.
 
@@ -166,7 +171,7 @@ def _is_async_handler(handler: Any) -> bool:
     and falls through to probe ``__call__``. The branches are kept separate
     rather than relying on ``getattr(handler, '__call__', None)`` for all
     cases because that probe returns the function itself for plain functions,
-    which is semantically clearer than checking ``__call__`` on a function.
+    which is semantically less clear than checking the callable directly.
     """
     if inspect.iscoroutinefunction(handler):
         return True
@@ -176,12 +181,37 @@ def _is_async_handler(handler: Any) -> bool:
     return inspect.iscoroutinefunction(call)
 ```
 
-Update `invoke_sync_handlers` to (a) take a `bus` keyword arg, (b) inject EventListener attrs immediately before each call, and (c) warn-and-close any coroutine returned from a sync dispatch path:
+New helper `_is_event_listener` (lazy import to avoid circular dependency between `_internal.py` and `listener.py` when both are imported from `bus.py`):
 
 ```python
-def invoke_sync_handlers(event_type, payload, handlers, *, bus):
+def _is_event_listener(obj: Any) -> bool:
+    """Lazy isinstance check for EventListener; avoids circular import.
+
+    The local import is cached by Python's module system after the first call.
+    """
+    from event_bus.listener import EventListener
+    return isinstance(obj, EventListener)
+```
+
+REPLACE the existing `invoke_sync_handlers` signature and body with the version below. New `bus` keyword arg; EventListener attr injection happens immediately before each call; coroutines accidentally returned from a sync handler are closed and a WARNING logged:
+
+```python
+def invoke_sync_handlers(
+    event_type: str,
+    payload: Any,
+    handlers: Iterable[Callable[[Any], None]],
+    *,
+    bus: EventBus,
+) -> None:
+    """Invoke each sync handler in iteration order with EventListener context injection.
+
+    For EventListener instances, ``current_event_type`` and ``current_event_bus``
+    are set immediately before the call. Exceptions are caught, logged, and
+    isolated — subsequent handlers still run. Coroutines accidentally returned
+    from a sync dispatch path are closed and a WARNING is emitted.
+    """
     for handler in handlers:
-        if isinstance(handler, EventListener):
+        if _is_event_listener(handler):
             handler.current_event_type = event_type
             handler.current_event_bus = bus
         try:
@@ -197,39 +227,64 @@ def invoke_sync_handlers(event_type, payload, handlers, *, bus):
             logger.exception("handler failed on event_type=%r", event_type)
 ```
 
-Update `schedule_async_handler` to (a) take a `bus` keyword arg, and (b) wrap the call in a coroutine that injects EventListener attrs RIGHT BEFORE awaiting, so async-scheduled handlers see the correct context at execution time rather than scheduling time:
+REPLACE the existing `schedule_async_handler` signature and body with the version below. The `bus_id: int = 0` kwarg is replaced by `bus: EventBus`; the rate-limited "no running loop" warning is PRESERVED (now keyed by `id(bus)` instead of an explicit `bus_id`). The scheduled call goes through the updated `_run_async_handler` (next change) which does the injection at await time:
 
 ```python
-def schedule_async_handler(event_type, payload, handler, *, bus):
-    async def _runner():
-        if isinstance(handler, EventListener):
-            handler.current_event_type = event_type
-            handler.current_event_bus = bus
-        try:
-            await handler(payload)
-        except Exception:  # noqa: BLE001
-            logger.exception("async handler failed on event_type=%r", event_type)
+def schedule_async_handler(
+    event_type: str,
+    payload: Any,
+    handler: Callable[[Any], Awaitable[None]],
+    *,
+    bus: EventBus,
+) -> None:
+    """Schedule *handler* on the running event loop via :func:`asyncio.ensure_future`.
+
+    If there is no running loop the call is a no-op; a single WARNING is
+    emitted per bus (rate-limited via id(bus) to avoid log flooding).
+
+    The scheduled coroutine (``_run_async_handler``) sets EventListener
+    context attrs at await time (not at schedule time) so attrs are correct
+    even if multiple publish() calls schedule the same listener concurrently.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        # no running loop — warn once (existing behavior) and skip
+        bus_id = id(bus)
+        if bus_id not in _warned_buses:
+            _warned_buses.add(bus_id)
+            logger.warning(
+                "no running event loop; async handler for event_type=%r skipped",
+                event_type,
+            )
         return
-    asyncio.ensure_future(_runner(), loop=loop)
+    asyncio.ensure_future(_run_async_handler(event_type, payload, handler, bus), loop=loop)
 ```
 
-Importing `EventListener` in `_internal.py` would create a circular import (listener.py imports nothing from _internal.py, but bus.py imports both). Resolve by using a TYPE_CHECKING import + runtime isinstance via a lazy module reference:
+REPLACE the existing `_run_async_handler` signature and body with the version below. Adds a `bus: EventBus` positional arg and an EventListener injection step before the `await`:
 
 ```python
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from event_bus.listener import EventListener
+async def _run_async_handler(
+    event_type: str,
+    payload: Any,
+    handler: Callable[[Any], Awaitable[None]],
+    bus: EventBus,
+) -> None:
+    """Inject EventListener context attrs, await handler, isolate any exception.
 
-def _is_event_listener(obj: Any) -> bool:
-    from event_bus.listener import EventListener  # local import avoids cycle
-    return isinstance(obj, EventListener)
+    Injection happens at await time (right before the handler body executes),
+    not at schedule time — this guarantees the listener sees its dispatch
+    context even if multiple publish() calls schedule it concurrently.
+    """
+    if _is_event_listener(handler):
+        handler.current_event_type = event_type
+        handler.current_event_bus = bus
+    try:
+        await handler(payload)
+    except Exception:  # noqa: BLE001
+        logger.exception("async handler failed on event_type=%r", event_type)
 ```
 
-Then use `_is_event_listener(handler)` instead of `isinstance(handler, EventListener)` in both helpers. The local import is cached after first call.
+Existing `_warned_buses: set[int] = set()` module-level state is UNCHANGED.
 
 ### `event_bus/__init__.py` — additions
 
