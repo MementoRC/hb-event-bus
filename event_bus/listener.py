@@ -46,3 +46,18 @@ class EventForwarder(EventListener):
 
     def __call__(self, payload: Any) -> None:
         self._to_function(payload)
+
+
+class SourceInfoEventForwarder(EventListener):
+    """Adapter that forwards (topic, bus, payload) to a 3-arg callable."""
+
+    __slots__ = ("_to_function",)
+
+    def __init__(self, to_function: Callable[[str, EventBus | None, Any], None]) -> None:
+        if not callable(to_function):
+            raise TypeError(f"to_function must be callable, got {type(to_function).__name__!r}")
+        super().__init__()
+        self._to_function = to_function
+
+    def __call__(self, payload: Any) -> None:
+        self._to_function(self.current_event_type, self.current_event_bus, payload)

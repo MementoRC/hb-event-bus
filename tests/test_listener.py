@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from event_bus.bus import EventBus
-from event_bus.listener import EventForwarder, EventListener
+from event_bus.listener import EventForwarder, EventListener, SourceInfoEventForwarder
 
 
 class TestEventListenerBase:
@@ -73,3 +73,48 @@ class TestEventForwarder:
         bus.publish("t", "payload")
         # Second handler still runs despite first raising
         assert captured == ["payload"]
+
+
+class TestSourceInfoEventForwarder:
+    def test_receives_topic_bus_payload_when_attrs_set_manually(self) -> None:
+        # Unit-level: simulate dispatch by setting attrs by hand,
+        # then call. Integration through bus.publish is covered in PR B2.
+        captured: list[tuple[str, Any, Any]] = []
+
+        def receiver(topic: str, bus: Any, payload: Any) -> None:
+            captured.append((topic, bus, payload))
+
+        fwd = SourceInfoEventForwarder(receiver)
+        fwd.current_event_type = "order.filled"
+        fwd.current_event_bus = "sentinel-bus"  # type: ignore[assignment]
+        fwd({"order_id": 1})
+        assert captured == [("order.filled", "sentinel-bus", {"order_id": 1})]
+
+    def test_rejects_non_callable(self) -> None:
+        with pytest.raises(TypeError, match="must be callable"):
+            SourceInfoEventForwarder(42)  # type: ignore[arg-type]
+
+    def test_inherits_eventlistener(self) -> None:
+        fwd = SourceInfoEventForwarder(lambda t, b, p: None)
+        assert isinstance(fwd, EventListener)
+
+    def test_attrs_default_to_empty_and_none(self) -> None:
+        fwd = SourceInfoEventForwarder(lambda t, b, p: None)
+        assert fwd.current_event_type == ""
+        assert fwd.current_event_bus is None
+
+    def test_payload_threaded_through_call(self) -> None:
+        captured: list[Any] = []
+        fwd = SourceInfoEventForwarder(lambda t, b, p: captured.append(p))
+        fwd.current_event_type = "x"
+        fwd("data")
+        assert captured == ["data"]
+
+    def test_topic_passed_correctly(self) -> None:
+        topics: list[str] = []
+        fwd = SourceInfoEventForwarder(lambda t, b, p: topics.append(t))
+        fwd.current_event_type = "topic.A"
+        fwd(None)
+        fwd.current_event_type = "topic.B"
+        fwd(None)
+        assert topics == ["topic.A", "topic.B"]
