@@ -8,7 +8,7 @@ from collections import defaultdict
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
-from event_bus._internal import invoke_sync_handlers, schedule_async_handler
+from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
 from event_bus.subscription import Subscription
 
 if TYPE_CHECKING:
@@ -94,10 +94,11 @@ class EventBus:
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
         sync_handlers: list[SyncHandler] = []
         for sub in subs:
-            if inspect.iscoroutinefunction(sub.handler):
-                schedule_async_handler(event_type, payload, sub.handler, bus=self)
+            handler = sub.handler
+            if _is_async_handler(handler):
+                schedule_async_handler(event_type, payload, handler, bus=self)  # type: ignore[arg-type]
             else:
-                sync_handlers.append(sub.handler)  # type: ignore[arg-type]
+                sync_handlers.append(handler)  # type: ignore[arg-type]
         invoke_sync_handlers(event_type, payload, sync_handlers, bus=self)
 
     async def apublish(self, event_type: str, payload: Any = None) -> None:
