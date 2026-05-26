@@ -95,7 +95,7 @@ class EventBus:
         sync_handlers: list[SyncHandler] = []
         for sub in subs:
             if inspect.iscoroutinefunction(sub.handler):
-                schedule_async_handler(event_type, payload, sub.handler, bus_id=id(self))
+                schedule_async_handler(event_type, payload, sub.handler, bus=self)
             else:
                 sync_handlers.append(sub.handler)  # type: ignore[arg-type]
         invoke_sync_handlers(event_type, payload, sync_handlers, bus=self)

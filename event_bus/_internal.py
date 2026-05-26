@@ -91,16 +91,21 @@ def schedule_async_handler(
     payload: Any,
     handler: Callable[[Any], Awaitable[None]],
     *,
-    bus_id: int = 0,
+    bus: EventBus,
 ) -> None:
     """Schedule *handler* on the running event loop via :func:`asyncio.ensure_future`.
 
     If there is no running loop the call is a no-op; a single WARNING is
-    emitted per *bus_id* (rate-limited to avoid log flooding).
+    emitted per bus (rate-limited via id(bus) to avoid log flooding).
+
+    The scheduled coroutine (``_run_async_handler``) sets EventListener
+    context attrs at await time (not at schedule time) so attrs are correct
+    even if multiple publish() calls schedule the same listener concurrently.
     """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
+        bus_id = id(bus)
         if bus_id not in _warned_buses:
             _warned_buses.add(bus_id)
             logger.warning(
@@ -108,16 +113,20 @@ def schedule_async_handler(
                 event_type,
             )
         return
-    asyncio.ensure_future(_run_async_handler(event_type, payload, handler), loop=loop)
+    asyncio.ensure_future(_run_async_handler(event_type, payload, handler, bus), loop=loop)
 
 
 async def _run_async_handler(
     event_type: str,
     payload: Any,
     handler: Callable[[Any], Awaitable[None]],
+    bus: EventBus,
 ) -> None:
-    """Await *handler* and isolate any exception it raises."""
+    """Inject EventListener context attrs, await handler, isolate any exception."""
+    if _is_event_listener(handler):
+        handler.current_event_type = event_type  # type: ignore[attr-defined]
+        handler.current_event_bus = bus  # type: ignore[attr-defined]
     try:
         await handler(payload)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.exception("async handler failed on event_type=%r", event_type)

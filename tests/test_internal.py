@@ -1,5 +1,6 @@
 """Tests for event_bus._internal dispatch helpers (plan task A5)."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -47,8 +48,8 @@ def test_schedule_async_handler_no_running_loop_warns_once(
         pass
 
     with caplog.at_level(logging.WARNING):
-        schedule_async_handler("evt", "payload", h)
-        schedule_async_handler("evt", "payload", h)  # second call should be suppressed
+        schedule_async_handler("evt", "payload", h, bus=EventBus(name="test"))
+        schedule_async_handler("evt", "payload", h, bus=EventBus(name="test"))  # second: suppressed
     warnings = [r for r in caplog.records if "no running event loop" in r.message]
     assert len(warnings) == 1  # rate-limited
 
@@ -123,3 +124,26 @@ class TestInvokeSyncHandlersInjection:
         with caplog.at_level(logging.WARNING, logger="event_bus"):
             invoke_sync_handlers("evt", "payload", [returns_coro], bus=bus)
         assert any("Sync dispatch received a coroutine" in rec.message for rec in caplog.records)
+
+
+class TestScheduleAsyncHandlerInjection:
+    @pytest.mark.asyncio
+    async def test_injects_attrs_at_await_time_not_schedule_time(self) -> None:
+        from event_bus._internal import schedule_async_handler
+        from event_bus.bus import EventBus
+        from event_bus.listener import EventListener
+
+        captured: dict[str, Any] = {}
+        ready = asyncio.Event()
+
+        class AsyncSpy(EventListener):
+            async def __call__(self, payload: Any) -> None:
+                captured["topic"] = self.current_event_type
+                captured["bus_name"] = self.current_event_bus.name  # type: ignore[union-attr]
+                ready.set()
+
+        bus = EventBus(name="async-b1")
+        spy = AsyncSpy()
+        schedule_async_handler("evt.async", "payload", spy, bus=bus)
+        await asyncio.wait_for(ready.wait(), timeout=1.0)
+        assert captured == {"topic": "evt.async", "bus_name": "async-b1"}
