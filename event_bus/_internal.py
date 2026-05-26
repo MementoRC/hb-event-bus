@@ -40,6 +40,18 @@ def _is_async_handler(handler: Any) -> bool:
     return inspect.iscoroutinefunction(call)
 
 
+def _is_event_listener(obj: Any) -> bool:
+    """Lazy isinstance check for EventListener; avoids circular import.
+
+    listener.py and _internal.py are both imported by bus.py; importing
+    EventListener at module scope here would create a cycle. The local
+    import is cached by Python's module system after the first call.
+    """
+    from event_bus.listener import EventListener
+
+    return isinstance(obj, EventListener)
+
+
 def invoke_sync_handlers(
     event_type: str,
     payload: Any,

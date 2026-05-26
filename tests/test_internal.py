@@ -5,7 +5,12 @@ from typing import Any
 
 import pytest
 
-from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
+from event_bus._internal import (
+    _is_async_handler,
+    _is_event_listener,
+    invoke_sync_handlers,
+    schedule_async_handler,
+)
 
 
 def test_invoke_sync_calls_all_handlers_in_order() -> None:
@@ -69,3 +74,19 @@ class TestIsAsyncHandler:
             def __call__(self, p: Any) -> None: ...
 
         assert _is_async_handler(SyncCallable()) is False
+
+
+class TestIsEventListener:
+    def test_returns_true_for_eventlistener_instance(self) -> None:
+        from event_bus.listener import EventListener
+
+        class L(EventListener):
+            def __call__(self, p: Any) -> None: ...
+
+        assert _is_event_listener(L()) is True
+
+    def test_returns_false_for_plain_function(self) -> None:
+        assert _is_event_listener(lambda p: None) is False
+
+    def test_returns_false_for_arbitrary_object(self) -> None:
+        assert _is_event_listener(object()) is False
