@@ -134,6 +134,45 @@ For Phase C refactors in Hummingbot, ensure all async subscribers use `apublish(
 
 ---
 
+## Callable-Object Handlers: EventListener & Forwarders
+
+For consumers that need topic/bus context inside their handler (vs. just receiving the payload), hb-event-bus ships three classes:
+
+```python
+from event_bus import EventBus, EventForwarder, EventListener, SourceInfoEventForwarder
+
+bus = EventBus(name="trading")
+
+# Plain forwarder — wraps a one-arg callable, gets payload only.
+def on_fill(payload):
+    print("filled:", payload)
+
+bus.subscribe("order.filled", EventForwarder(on_fill))
+
+# Source-info forwarder — wraps a three-arg callable, receives
+# (topic, bus, payload).
+def on_fill_with_context(topic: str, source_bus: EventBus, payload):
+    print(f"[{source_bus.name}] {topic}: {payload}")
+
+bus.subscribe("order.filled", SourceInfoEventForwarder(on_fill_with_context))
+
+# Subclassing EventListener directly — for state-bearing handlers.
+class OrderTracker(EventListener):
+    def __init__(self):
+        super().__init__()
+        self.fills = []
+    def __call__(self, payload):
+        self.fills.append((self.current_event_type, payload))
+
+bus.subscribe("order.filled", OrderTracker())
+```
+
+The bus sets `current_event_type` and `current_event_bus` on each EventListener instance immediately before invoking it. Inside `__call__`, the attrs are valid; reading them outside `__call__` is undefined.
+
+EventListener subscriptions are held by **strong reference** (consistent with the rest of hb-event-bus); call `subscription.cancel()` to release.
+
+---
+
 ## Development
 
 Install and test:
@@ -150,7 +189,7 @@ pixi run check  # Full suite
 
 ## Status
 
-**Phase A Complete** — Public API (`EventBus`, `Subscription`, `Handler`, `AsyncHandler`) is stable and exported via `event_bus/__init__.py`. Feature set and design are frozen for Phase B (Hummingbot integration).
+**Phase A Complete** — Public API (`EventBus`, `Subscription`, `Handler`, `AsyncHandler`, `EventListener`, `EventForwarder`, `SourceInfoEventForwarder`) is stable and exported via `event_bus/__init__.py`. Feature set and design are frozen for Phase B (Hummingbot integration).
 
 ---
 
