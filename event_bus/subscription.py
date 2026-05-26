@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 Handler = Callable[[Any], None | Awaitable[None]]
+SyncHandler = Callable[[Any], None]
 
 
 class Subscription:

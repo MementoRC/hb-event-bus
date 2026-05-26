@@ -14,6 +14,8 @@ from event_bus.subscription import Subscription
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from event_bus.subscription import SyncHandler
+
 logger = logging.getLogger("event_bus")
 
 
@@ -90,12 +92,12 @@ class EventBus:
         if not event_type:
             logger.debug("publish called with empty event_type")
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
-        sync_handlers = []
+        sync_handlers: list[SyncHandler] = []
         for sub in subs:
             if inspect.iscoroutinefunction(sub.handler):
                 schedule_async_handler(event_type, payload, sub.handler, bus_id=id(self))
             else:
-                sync_handlers.append(sub.handler)
+                sync_handlers.append(sub.handler)  # type: ignore[arg-type]
         invoke_sync_handlers(event_type, payload, sync_handlers)
 
     async def apublish(self, event_type: str, payload: Any = None) -> None:
