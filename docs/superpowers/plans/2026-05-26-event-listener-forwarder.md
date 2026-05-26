@@ -660,8 +660,8 @@ def invoke_sync_handlers(
     """
     for handler in handlers:
         if _is_event_listener(handler):
-            handler.current_event_type = event_type
-            handler.current_event_bus = bus
+            handler.current_event_type = event_type  # type: ignore[union-attr]
+            handler.current_event_bus = bus  # type: ignore[union-attr]
         try:
             result = handler(payload)
             if inspect.iscoroutine(result):
@@ -810,13 +810,23 @@ async def _run_async_handler(
 ) -> None:
     """Inject EventListener context attrs, await handler, isolate any exception."""
     if _is_event_listener(handler):
-        handler.current_event_type = event_type
-        handler.current_event_bus = bus
+        handler.current_event_type = event_type  # type: ignore[union-attr]
+        handler.current_event_bus = bus  # type: ignore[union-attr]
     try:
         await handler(payload)
     except Exception:  # noqa: BLE001
         logger.exception("async handler failed on event_type=%r", event_type)
 ```
+
+- [ ] **Step 3b: Update existing `schedule_async_handler` call sites in `tests/test_internal.py`**
+
+The existing test file has direct calls to `schedule_async_handler(event_type, payload, handler)` (or with `bus_id=...`) without the new `bus` kwarg. Find them with:
+
+```
+grep -n "schedule_async_handler(" tests/test_internal.py
+```
+
+For each match in EXISTING test functions (NOT the new test added in Step 1), append `, bus=EventBus(name="test")` as a keyword argument (replacing the old `bus_id=...` kwarg if present). The existing `test_schedule_async_handler_no_running_loop_warns_once` test has two such call sites. Ensure `from event_bus.bus import EventBus` is imported at the top of the test file.
 
 - [ ] **Step 4: Update bus.py `publish()` call site to pass `bus=self`**
 
@@ -1077,7 +1087,7 @@ See `docs/superpowers/specs/2026-05-26-event-listener-forwarder-design.md`.
 
 ## Test plan
 
-- [x] `pixi run test` — full suite green (~65 tests)
+- [x] `pixi run test` — full suite green (71 tests: 44 baseline + 15 from B1 + 12 from B2)
 - [x] `pixi run lint` — clean
 - [x] `pixi run format --check` — clean
 - [x] `pixi run typecheck` — clean
