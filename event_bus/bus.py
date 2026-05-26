@@ -98,7 +98,7 @@ class EventBus:
                 schedule_async_handler(event_type, payload, sub.handler, bus_id=id(self))
             else:
                 sync_handlers.append(sub.handler)  # type: ignore[arg-type]
-        invoke_sync_handlers(event_type, payload, sync_handlers)
+        invoke_sync_handlers(event_type, payload, sync_handlers, bus=self)
 
     async def apublish(self, event_type: str, payload: Any = None) -> None:
         """Async dispatch: await async handlers sequentially; invoke sync handlers inline.

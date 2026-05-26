@@ -11,6 +11,7 @@ from event_bus._internal import (
     invoke_sync_handlers,
     schedule_async_handler,
 )
+from event_bus.bus import EventBus
 
 
 def test_invoke_sync_calls_all_handlers_in_order() -> None:
@@ -20,7 +21,7 @@ def test_invoke_sync_calls_all_handlers_in_order() -> None:
         lambda p: calls.append(("b", p)),
         lambda p: calls.append(("c", p)),
     ]
-    invoke_sync_handlers("evt", "payload", handlers)
+    invoke_sync_handlers("evt", "payload", handlers, bus=EventBus(name="test"))
     assert calls == [("a", "payload"), ("b", "payload"), ("c", "payload")]
 
 
@@ -33,7 +34,7 @@ def test_invoke_sync_isolates_exceptions(caplog: pytest.LogCaptureFixture) -> No
 
     good.called = None  # type: ignore[attr-defined]
     with caplog.at_level(logging.ERROR):
-        invoke_sync_handlers("evt", "payload", [bad, good])
+        invoke_sync_handlers("evt", "payload", [bad, good], bus=EventBus(name="test"))
     assert good.called == "payload"  # type: ignore[attr-defined]
     assert "boom" in caplog.text
     assert "evt" in caplog.text
@@ -90,3 +91,35 @@ class TestIsEventListener:
 
     def test_returns_false_for_arbitrary_object(self) -> None:
         assert _is_event_listener(object()) is False
+
+
+class TestInvokeSyncHandlersInjection:
+    def test_injects_event_listener_attrs_before_call(self) -> None:
+        from event_bus._internal import invoke_sync_handlers
+        from event_bus.bus import EventBus
+        from event_bus.listener import EventListener
+
+        captured: dict[str, Any] = {}
+
+        class Spy(EventListener):
+            def __call__(self, payload: Any) -> None:
+                captured["topic"] = self.current_event_type
+                captured["bus_name"] = self.current_event_bus.name  # type: ignore[union-attr]
+                captured["payload"] = payload
+
+        bus = EventBus(name="b1")
+        invoke_sync_handlers("evt.x", "data", [Spy()], bus=bus)
+        assert captured == {"topic": "evt.x", "bus_name": "b1", "payload": "data"}
+
+    def test_warns_and_closes_coroutine_returned_from_sync_path(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from event_bus._internal import invoke_sync_handlers
+        from event_bus.bus import EventBus
+
+        async def returns_coro(_: Any) -> None: ...
+
+        bus = EventBus(name="b1")
+        with caplog.at_level(logging.WARNING, logger="event_bus"):
+            invoke_sync_handlers("evt", "payload", [returns_coro], bus=bus)
+        assert any("Sync dispatch received a coroutine" in rec.message for rec in caplog.records)

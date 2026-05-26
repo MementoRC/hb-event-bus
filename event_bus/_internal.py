@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
+    from event_bus.bus import EventBus
+
 logger = logging.getLogger("event_bus")
 
 # Track which bus_ids have already emitted the "no running loop" warning so
@@ -56,16 +58,31 @@ def invoke_sync_handlers(
     event_type: str,
     payload: Any,
     handlers: Iterable[Callable[[Any], None]],
+    *,
+    bus: EventBus,
 ) -> None:
-    """Invoke each sync handler in iteration order.
+    """Invoke each sync handler in iteration order with EventListener context injection.
 
-    Exceptions are caught, logged with the offending event_type, and
-    isolated — subsequent handlers still run.
+    For EventListener instances, ``current_event_type`` and ``current_event_bus``
+    are set immediately before the call. Exceptions are caught, logged, and
+    isolated — subsequent handlers still run. Coroutines accidentally returned
+    from a sync dispatch path are closed and a WARNING is emitted.
     """
     for handler in handlers:
+        if _is_event_listener(handler):
+            handler.current_event_type = event_type  # type: ignore[attr-defined]
+            handler.current_event_bus = bus  # type: ignore[attr-defined]
         try:
-            handler(payload)
-        except Exception:
+            result = handler(payload)
+            if inspect.iscoroutine(result):
+                result.close()
+                logger.warning(
+                    "Sync dispatch received a coroutine from %r on topic=%r; "
+                    "use apublish() or expose async __call__ via a real method.",
+                    handler,
+                    event_type,
+                )
+        except Exception:  # noqa: BLE001
             logger.exception("handler failed on event_type=%r", event_type)
 
 
