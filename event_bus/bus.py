@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from collections import defaultdict
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
+from event_bus.listener import EventListener
 from event_bus.subscription import Subscription
 
 if TYPE_CHECKING:
@@ -123,10 +123,14 @@ class EventBus:
             logger.debug("apublish called with empty event_type")
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
         for sub in subs:
+            handler = sub.handler
+            if isinstance(handler, EventListener):
+                handler.current_event_type = event_type
+                handler.current_event_bus = self
             try:
-                if inspect.iscoroutinefunction(sub.handler):
-                    await sub.handler(payload)
+                if _is_async_handler(handler):
+                    await handler(payload)  # type: ignore[misc]
                 else:
-                    sub.handler(payload)
+                    handler(payload)
             except Exception:  # noqa: BLE001
                 logger.exception("handler failed on event_type=%r", event_type)

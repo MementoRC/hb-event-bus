@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import Any
+
+import pytest
 
 from event_bus.bus import EventBus
-
-if TYPE_CHECKING:
-    import pytest
 
 
 async def test_apublish_invokes_sync_handlers_inline() -> None:
@@ -94,3 +93,22 @@ async def test_apublish_sync_exception_isolation(caplog: pytest.LogCaptureFixtur
         await bus.apublish("foo", "x")
     assert later_called == ["x"]
     assert "sync-boom" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_apublish_injects_event_info_before_each_await() -> None:
+    from event_bus.bus import EventBus
+    from event_bus.listener import EventListener
+
+    seen: list[tuple[str, str, Any]] = []
+
+    class AsyncSpy(EventListener):
+        async def __call__(self, payload: Any) -> None:
+            seen.append((self.current_event_type, self.current_event_bus.name, payload))  # type: ignore[union-attr]
+
+    bus = EventBus(name="integration-async")
+    bus.subscribe("t.A", AsyncSpy())
+    bus.subscribe("t.B", AsyncSpy())
+    await bus.apublish("t.A", "alpha")
+    await bus.apublish("t.B", "beta")
+    assert seen == [("t.A", "integration-async", "alpha"), ("t.B", "integration-async", "beta")]
