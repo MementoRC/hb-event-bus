@@ -34,10 +34,10 @@ def _is_async_handler(handler: Any) -> bool:
     """
     if inspect.iscoroutinefunction(handler):
         return True
-    try:
-        return inspect.iscoroutinefunction(handler.__call__)
-    except AttributeError:
+    call = getattr(handler, "__call__", None)  # noqa: B004
+    if call is None:
         return False
+    return inspect.iscoroutinefunction(call)
 
 
 def invoke_sync_handlers(
