@@ -1,10 +1,11 @@
 """Tests for event_bus._internal dispatch helpers (plan task A5)."""
 
 import logging
+from typing import Any
 
 import pytest
 
-from event_bus._internal import invoke_sync_handlers, schedule_async_handler
+from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
 
 
 def test_invoke_sync_calls_all_handlers_in_order() -> None:
@@ -44,3 +45,27 @@ def test_schedule_async_handler_no_running_loop_warns_once(
         schedule_async_handler("evt", "payload", h)  # second call should be suppressed
     warnings = [r for r in caplog.records if "no running event loop" in r.message]
     assert len(warnings) == 1  # rate-limited
+
+
+class TestIsAsyncHandler:
+    def test_plain_function_returns_false(self) -> None:
+        def f(p: Any) -> None: ...
+
+        assert _is_async_handler(f) is False
+
+    def test_plain_coroutine_function_returns_true(self) -> None:
+        async def af(p: Any) -> None: ...
+
+        assert _is_async_handler(af) is True
+
+    def test_class_instance_with_async_call_returns_true(self) -> None:
+        class AsyncCallable:
+            async def __call__(self, p: Any) -> None: ...
+
+        assert _is_async_handler(AsyncCallable()) is True
+
+    def test_class_instance_with_sync_call_returns_false(self) -> None:
+        class SyncCallable:
+            def __call__(self, p: Any) -> None: ...
+
+        assert _is_async_handler(SyncCallable()) is False

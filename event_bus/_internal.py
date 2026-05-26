@@ -7,6 +7,7 @@ registered handlers.  Nothing in this module is part of the public API.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,25 @@ logger = logging.getLogger("event_bus")
 # Track which bus_ids have already emitted the "no running loop" warning so
 # that repeated calls only produce one log entry (rate-limited per bus).
 _warned_buses: set[int] = set()
+
+
+def _is_async_handler(handler: Any) -> bool:
+    """True if handler should dispatch via the async (await) path.
+
+    Returns True when:
+    - handler is a coroutine function (``async def f(...)``), OR
+    - handler is a class instance whose ``__call__`` is a coroutine function.
+
+    The two branches do not overlap in practice: a plain coroutine function
+    returns True at the first check; a class instance returns False there
+    and falls through to probe ``__call__``.
+    """
+    if inspect.iscoroutinefunction(handler):
+        return True
+    try:
+        return inspect.iscoroutinefunction(handler.__call__)
+    except AttributeError:
+        return False
 
 
 def invoke_sync_handlers(
