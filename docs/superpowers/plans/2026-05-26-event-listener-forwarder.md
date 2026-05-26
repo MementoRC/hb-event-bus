@@ -23,7 +23,7 @@ Four atomic PRs matching the Phase A pattern. Each PR is self-contained, passes 
 | PR  | Branch                                       | Scope                                                    | Test delta |
 |-----|----------------------------------------------|----------------------------------------------------------|------------|
 | B1  | `feat/b1-listener-module`                    | `event_bus/listener.py` + unit tests for 3 classes       | +15        |
-| B2  | `feat/b2-dispatch-wiring`                    | `_internal.py` helpers + sig changes + `bus.py` loops    | +6         |
+| B2  | `feat/b2-dispatch-wiring`                    | `_internal.py` helpers + sig changes + `bus.py` loops    | +12        |
 | B3  | `feat/b3-listener-public-exports`            | `__init__.py` exports + smoke test                       | +1         |
 | B4  | `docs/b4-listener-readme`                    | README listener/forwarder section                        | 0          |
 
@@ -32,6 +32,8 @@ Each PR branches off the previous one's merge into `development`. After each mer
 ---
 
 ## PR B1 — listener.py + unit tests
+
+> All B1.x tasks (B1.1 through B1.3) commit on the existing `feat/event-listener-forwarder` branch (created off `development` during brainstorming). Task B1.4 renames/branches that work into `feat/b1-listener-module` for the PR. Subsequent PRs (B2, B3, B4) each start from a fresh branch off `development` after the previous PR merges.
 
 ### Task B1.1: Create `event_bus/listener.py` skeleton with EventListener base
 
@@ -673,6 +675,16 @@ def invoke_sync_handlers(
             logger.exception("handler failed on event_type=%r", event_type)
 ```
 
+- [ ] **Step 3b: Update existing `invoke_sync_handlers` call sites in `tests/test_internal.py`**
+
+The existing test file (pre-this-PR) has direct calls to `invoke_sync_handlers(event_type, payload, handlers)` without the new `bus` kwarg. Find them with:
+
+```
+grep -n "invoke_sync_handlers(" tests/test_internal.py
+```
+
+For each match in the existing test functions (NOT in the new tests added in Step 1), append `, bus=EventBus(name="test")` as a keyword argument. Add `from event_bus.bus import EventBus` at the top of `tests/test_internal.py` if not already imported.
+
 - [ ] **Step 4: bus.py call site MUST be updated in this same task to keep tests green**
 
 In `event_bus/bus.py` `publish()`, find the call:
@@ -814,10 +826,10 @@ schedule_async_handler(event_type, payload, sub.handler, bus_id=id(self))
 ```
 Replace with:
 ```python
-schedule_async_handler(event_type, payload, handler, bus=self)
+schedule_async_handler(event_type, payload, sub.handler, bus=self)
 ```
 
-(Note `handler` variable comes from `handler = sub.handler` already present.)
+(B2.5 will introduce a `handler = sub.handler` local variable when the for-loop is rewritten wholesale. For now keep `sub.handler` inline to minimize the B2.4 diff.)
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -852,35 +864,50 @@ Refs: hb-event-bus#1"
 - Modify: `event_bus/bus.py`
 - Modify: `tests/test_bus_publish.py`
 
-- [ ] **Step 1: Write integration test**
+The existing publish() for-loop classifies handlers via inline `inspect.iscoroutinefunction(sub.handler)`. This returns False for class instances with async `__call__`, causing such handlers to be routed to the sync path (where they'd return an un-awaited coroutine). B2.5 fixes this by replacing the classifier with `_is_async_handler` and adopting a `handler = sub.handler` local for readability.
+
+- [ ] **Step 1: Write failing test — async-call EventListener via publish() must be scheduled, not sync-called**
 
 Append to `tests/test_bus_publish.py`:
 
 ```python
-def test_publish_injects_event_info_before_call() -> None:
+import asyncio
+
+
+def test_publish_routes_async_call_eventlistener_via_schedule(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An EventListener subclass with async __call__ must be scheduled by publish(),
+    not invoked on the sync path (where it would return an un-awaited coroutine).
+    """
     from event_bus.bus import EventBus
     from event_bus.listener import EventListener
 
-    captured: dict[str, Any] = {}
+    class AsyncListener(EventListener):
+        invoked: bool = False
 
-    class Spy(EventListener):
-        def __call__(self, payload: Any) -> None:
-            captured["topic"] = self.current_event_type
-            captured["bus_name"] = self.current_event_bus.name  # type: ignore[union-attr]
-            captured["payload"] = payload
+        async def __call__(self, payload: Any) -> None:
+            type(self).invoked = True
 
-    bus = EventBus(name="integration-b1")
-    bus.subscribe("order.filled", Spy())
-    bus.publish("order.filled", {"qty": 100})
-    assert captured == {"topic": "order.filled", "bus_name": "integration-b1", "payload": {"qty": 100}}
+    async def driver() -> None:
+        bus = EventBus(name="b5")
+        bus.subscribe("evt", AsyncListener())
+        bus.publish("evt", "payload")
+        # Yield control so the scheduled task can run.
+        await asyncio.sleep(0)
+
+    with caplog.at_level("WARNING", logger="event_bus"):
+        asyncio.run(driver())
+
+    assert AsyncListener.invoked is True
+    # No "Sync dispatch received a coroutine" warning — handler was correctly scheduled.
+    assert not any("Sync dispatch received a coroutine" in r.message for r in caplog.records)
 ```
 
-- [ ] **Step 2: Run test to verify it passes already**
+- [ ] **Step 2: Run test to verify it fails**
 
-Run: `pixi run pytest tests/test_bus_publish.py::test_publish_injects_event_info_before_call -v`
-Expected: PASS (B2.3 already wired `invoke_sync_handlers` with bus kwarg; this test exercises that integration end-to-end).
-
-If FAIL: the publish() for-loop still uses `inspect.iscoroutinefunction(sub.handler)` and the new `_is_async_handler` import is missing. Proceed to Step 3.
+Run: `pixi run pytest tests/test_bus_publish.py::test_publish_routes_async_call_eventlistener_via_schedule -v`
+Expected: FAIL — the existing `inspect.iscoroutinefunction(sub.handler)` returns False for the AsyncListener instance; the handler is routed to sync, returns a coroutine, and `invoke_sync_handlers` warn-and-closes it (so `AsyncListener.invoked` stays False).
 
 - [ ] **Step 3: Replace publish() for-loop and update imports in bus.py**
 
@@ -891,13 +918,12 @@ Remove (if no other use remains):
 import inspect
 ```
 
-Add:
+Add (or extend the existing `from event_bus._internal import ...` line):
 ```python
 from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
-from event_bus.listener import EventListener
 ```
 
-(`invoke_sync_handlers` and `schedule_async_handler` are already imported — just confirm.)
+(`invoke_sync_handlers` and `schedule_async_handler` are already imported — confirm and add `_is_async_handler` to the same import. Do NOT add `EventListener` here; B2.6 needs it for apublish() and will add it then.)
 
 In `publish()`, replace the entire for-loop section (from `for sub in subs:` through `invoke_sync_handlers(...)`) with:
 
@@ -914,7 +940,7 @@ In `publish()`, replace the entire for-loop section (from `for sub in subs:` thr
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pixi run pytest tests/test_bus_publish.py -v`
-Expected: all existing tests + the new injection test all pass.
+Expected: all existing tests + the new async-routing test all pass.
 
 - [ ] **Step 5: Commit**
 
@@ -967,7 +993,12 @@ async def test_apublish_injects_event_info_before_each_await() -> None:
 Run: `pixi run pytest tests/test_bus_apublish.py::test_apublish_injects_event_info_before_each_await -v`
 Expected: FAIL — apublish() does not yet do EventListener injection nor use `_is_async_handler`.
 
-- [ ] **Step 3: Replace apublish() for-loop in bus.py**
+- [ ] **Step 3: Add EventListener import + replace apublish() for-loop in bus.py**
+
+Top of `event_bus/bus.py`, add:
+```python
+from event_bus.listener import EventListener
+```
 
 In `event_bus/bus.py` `apublish()`, replace the entire for-loop (from `for sub in subs:` through the end of the loop body) with:
 
@@ -992,7 +1023,7 @@ Run: `pixi run pytest tests/test_bus_apublish.py -v`
 Expected: all existing + new test pass.
 
 Also: `pixi run test`
-Expected: full suite green (59 + 6 new in PR B2 = 65 expected).
+Expected: full suite green. PR B2 adds 12 new tests across test_internal.py (4 + 3 + 2 + 1 = 10), test_bus_publish.py (+1), and test_bus_apublish.py (+1). Total after B2: 59 + 12 = 71 expected.
 
 - [ ] **Step 5: Run full quality gates**
 
@@ -1165,9 +1196,9 @@ EOF
 
 - [ ] **Step 1: Add a new section to README.md**
 
-After the existing "## API" section (or wherever class references live), insert:
+After the existing "## API" section (or wherever class references live), insert the following markdown content (note: the outer fence below is a quoting fence for this plan only; in the README itself, use the inner content directly without any wrapping fence):
 
-```markdown
+````
 ## Callable-Object Handlers: EventListener & Forwarders
 
 For consumers that need topic/bus context inside their handler (vs. just receiving the payload), hb-event-bus ships three classes:
@@ -1204,7 +1235,12 @@ bus.subscribe("order.filled", OrderTracker())
 The bus sets `current_event_type` and `current_event_bus` on each EventListener instance immediately before invoking it. Inside `__call__`, the attrs are valid; reading them outside `__call__` is undefined.
 
 EventListener subscriptions are held by **strong reference** (consistent with the rest of hb-event-bus); call `subscription.cancel()` to release.
-```
+````
+
+(Continues with the rest of the README content — see the original code blocks below for the bus/forwarder/tracker example. Use single triple-backticks `python` for the example code block in the actual README; the four-backtick fence here is only to avoid nesting issues in the plan document itself.)
+````
+
+The body content of the README section (to paste between the `## Callable-Object Handlers` heading and the `## Status` update) is shown in the next code block. Triple-backtick `python` fences inside the README are unchanged; only this plan document uses four-backtick quoting fences to avoid renderer confusion.
 
 Update the "## Status" section to note the addition:
 
