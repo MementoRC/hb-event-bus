@@ -1003,14 +1003,18 @@ async def test_apublish_injects_event_info_before_each_await() -> None:
 Run: `pixi run pytest tests/test_bus_apublish.py::test_apublish_injects_event_info_before_each_await -v`
 Expected: FAIL — apublish() does not yet do EventListener injection nor use `_is_async_handler`.
 
-- [ ] **Step 3: Add EventListener import + replace apublish() for-loop in bus.py**
+- [ ] **Step 3: Add EventListener import + replace apublish() for-loop in bus.py + remove now-unused inspect import**
 
 Top of `event_bus/bus.py`, add:
 ```python
 from event_bus.listener import EventListener
 ```
 
-In `event_bus/bus.py` `apublish()`, replace the entire for-loop (from `for sub in subs:` through the end of the loop body) with:
+In `event_bus/bus.py` `apublish()`, replace the entire for-loop (from `for sub in subs:` through the end of the loop body) with the block below.
+
+After this change, `inspect.iscoroutinefunction(...)` is no longer called anywhere in `bus.py`. Remove the now-unused `import inspect` line at the top of `event_bus/bus.py` (B2.5 deferred this removal because apublish() was still using it; B2.6 is when the last use disappears). If `import inspect` was already removed in B2.5, this step is a no-op.
+
+Replacement for-loop:
 
 ```python
         for sub in subs:
@@ -1307,7 +1311,7 @@ EOF
 ## Definition of Done
 
 - [ ] PR B1 merged: 15 new tests, `listener.py` exists with three classes
-- [ ] PR B2 merged: 6 new tests, dispatch helpers + bus loops wired to inject EventListener context
+- [ ] PR B2 merged: 12 new tests, dispatch helpers + bus loops wired to inject EventListener context
 - [ ] PR B3 merged: public API exports three new classes
 - [ ] PR B4 merged: README documents the additions
 - [ ] Issue hb-event-bus#1 updated: Phase A complete with listener/forwarder additions; Phase B (hummingbot integration) and Phase C (sub-package harmonization) remain open in consumer repos
