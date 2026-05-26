@@ -26,3 +26,15 @@ def test_version_present():
     from event_bus.__about__ import __version__
 
     assert __version__ == "0.1.0"
+
+
+def test_listener_classes_exported_via_public_api() -> None:
+    """Verify that EventListener, EventForwarder, and SourceInfoEventForwarder are exported."""
+    import event_bus
+
+    assert hasattr(event_bus, "EventListener")
+    assert hasattr(event_bus, "EventForwarder")
+    assert hasattr(event_bus, "SourceInfoEventForwarder")
+    assert "EventListener" in event_bus.__all__
+    assert "EventForwarder" in event_bus.__all__
+    assert "SourceInfoEventForwarder" in event_bus.__all__
