@@ -74,5 +74,9 @@ pixi.lock
 .env.development.local
 .env.test.local
 .env.production.local
-.claude/
 logs/
+
+# Claude Code
+.claude/
+.claude.json
+.mcp.json
