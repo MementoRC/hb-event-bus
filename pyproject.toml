@@ -10,21 +10,59 @@ requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 dependencies = []
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.0.3",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=7.1.0",
-    "pytest-timeout>=2.4.0",
-    "ruff>=0.15.10",
-    "mypy>=1.20.0",
-]
-
 [tool.hatch.version]
 path = "event_bus/__about__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["event_bus"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.12,<3.13"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = ">=9.0.3"
+pytest-asyncio = ">=0.21.0"
+pytest-cov = ">=7.1.0"
+pytest-timeout = ">=2.4.0"
+ruff = "=0.15.10"
+mypy = ">=1.20.0"
+pre-commit = ">=2.15.0"
+
+[tool.pixi.feature.ci.dependencies]
+ruff = "=0.15.10"
+mypy = ">=1.20.0"
+pytest = ">=9.0.3"
+pytest-cov = ">=7.1.0"
+pytest-timeout = ">=2.4.0"
+bandit = ">=1.8.0"
+pre-commit = ">=2.15.0"
+hatchling = ">=1.18"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "default" }
+ci = { features = ["ci", "dev"], solve-group = "default" }
+quality-ci = { features = ["ci", "dev"], solve-group = "default" }
+py312 = { features = ["py312", "dev"], solve-group = "py312" }
+
+[tool.pixi.tasks]
+test = "pytest tests/"
+test-unit = "pytest tests/unit/"
+test-integration = "pytest tests/integration/"
+lint = "ruff check event_bus tests"
+format = "ruff format event_bus tests"
+format-check = "ruff format --check event_bus tests"
+typecheck = "mypy event_bus"
+build = "hatchling build"
+coverage = "pytest tests/ --cov=event_bus --cov-report=term-missing"
+quality = { depends-on = ["lint", "format-check"] }
+check = { depends-on = ["quality", "typecheck", "test"] }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
