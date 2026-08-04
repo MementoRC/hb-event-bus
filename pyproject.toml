@@ -62,7 +62,7 @@ typecheck = "mypy event_bus"
 build = "hatchling build"
 coverage = "pytest tests/ --cov=event_bus --cov-report=term-missing"
 quality = { depends-on = ["lint", "format-check"] }
-check = { depends-on = ["quality", "typecheck", "test"] }
+check = { depends-on = ["quality", "typecheck", "coverage"] }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
