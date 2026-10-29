@@ -1,0 +1,5 @@
+# CODEOWNERS file for hb-event-bus
+# Users mentioned here are automatically requested for review.
+
+# Default owners for everything in the repo
+* @MementoRC
