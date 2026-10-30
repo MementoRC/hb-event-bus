@@ -1,6 +1,7 @@
 """Tests for event_bus._internal dispatch helpers (plan task A5)."""
 
 import asyncio
+import gc
 import logging
 from typing import Any
 
@@ -47,11 +48,54 @@ def test_schedule_async_handler_no_running_loop_warns_once(
     async def h(_: object) -> None:
         pass
 
+    bus = EventBus(name="test")
     with caplog.at_level(logging.WARNING):
-        schedule_async_handler("evt", "payload", h, bus=EventBus(name="test"))
-        schedule_async_handler("evt", "payload", h, bus=EventBus(name="test"))  # second: suppressed
+        schedule_async_handler("evt", "payload", h, bus=bus)
+        schedule_async_handler("evt", "payload", h, bus=bus)  # second: suppressed
     warnings = [r for r in caplog.records if "no running event loop" in r.message]
     assert len(warnings) == 1  # rate-limited
+
+
+def test_schedule_async_handler_no_running_loop_warns_once_per_bus(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def h(_: object) -> None:
+        pass
+
+    bus_a = EventBus(name="a")
+    bus_b = EventBus(name="b")
+    with caplog.at_level(logging.WARNING):
+        schedule_async_handler("evt", "payload", h, bus=bus_a)
+        schedule_async_handler("evt", "payload", h, bus=bus_b)
+    warnings = [r for r in caplog.records if "no running event loop" in r.message]
+    assert len(warnings) == 2
+
+
+def test_schedule_async_handler_warns_for_new_bus_at_recycled_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def h(_: object) -> None:
+        pass
+
+    bus = EventBus(name="old")
+    with caplog.at_level(logging.WARNING):
+        schedule_async_handler("evt", "payload", h, bus=bus)
+    old_id = id(bus)
+    del bus
+    gc.collect()
+
+    # Keep candidates alive so the allocator walks through its free slots
+    # instead of handing back the same one on every iteration.
+    candidates = [EventBus(name="new") for _ in range(1000)]
+    new_bus = next((b for b in candidates if id(b) == old_id), None)
+    if new_bus is None:
+        pytest.skip("could not allocate a bus at the recycled address")
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        schedule_async_handler("evt", "payload", h, bus=new_bus)
+    warnings = [r for r in caplog.records if "no running event loop" in r.message]
+    assert len(warnings) == 1
 
 
 class TestIsAsyncHandler:

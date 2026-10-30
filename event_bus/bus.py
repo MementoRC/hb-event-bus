@@ -29,7 +29,7 @@ class EventBus:
     the bus is shared across threads.
     """
 
-    __slots__ = ("_subscriptions", "name")
+    __slots__ = ("__weakref__", "_subscriptions", "name")
 
     def __init__(self, *, name: str = "default") -> None:
         self.name: str = name
