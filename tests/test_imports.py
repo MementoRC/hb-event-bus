@@ -25,7 +25,7 @@ def test_version_present():
     """Verify that __version__ is accessible."""
     from event_bus.__about__ import __version__
 
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.2.1"
 
 
 def test_listener_classes_exported_via_public_api() -> None:
