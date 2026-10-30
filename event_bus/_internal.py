@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import weakref
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -18,9 +19,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("event_bus")
 
-# Track which bus_ids have already emitted the "no running loop" warning so
+# Track which buses have already emitted the "no running loop" warning so
 # that repeated calls only produce one log entry (rate-limited per bus).
-_warned_buses: set[int] = set()
+# Weak references: entries vanish with the bus, so a new bus allocated at a
+# recycled address is never mistaken for an old one.
+_warned_buses: weakref.WeakSet[EventBus] = weakref.WeakSet()
 
 
 def _is_async_handler(handler: Any) -> bool:
@@ -96,7 +99,7 @@ def schedule_async_handler(
     """Schedule *handler* on the running event loop via :func:`asyncio.ensure_future`.
 
     If there is no running loop the call is a no-op; a single WARNING is
-    emitted per bus (rate-limited via id(bus) to avoid log flooding).
+    emitted per bus (rate-limited via a weak set of buses to avoid log flooding).
 
     The scheduled coroutine (``_run_async_handler``) sets EventListener
     context attrs at await time (not at schedule time) so attrs are correct
@@ -105,9 +108,8 @@ def schedule_async_handler(
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        bus_id = id(bus)
-        if bus_id not in _warned_buses:
-            _warned_buses.add(bus_id)
+        if bus not in _warned_buses:
+            _warned_buses.add(bus)
             logger.warning(
                 "no running event loop; async handler for event_type=%r skipped",
                 event_type,
