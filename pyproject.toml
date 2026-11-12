@@ -30,11 +30,13 @@ pytest-cov = ">=7.1.0"
 pytest-timeout = ">=2.4.0"
 ruff = "=0.17.2"
 mypy = ">=1.20.0"
+import-linter = ">=2.0"
 pre-commit = ">=2.15.0"
 
 [tool.pixi.feature.ci.dependencies]
 ruff = "=0.17.2"
 mypy = ">=1.20.0"
+import-linter = ">=2.0"
 pytest = ">=9.0.3"
 pytest-cov = ">=7.1.0"
 pytest-timeout = ">=2.4.0"
@@ -62,7 +64,8 @@ typecheck = "mypy event_bus"
 build = "hatchling build"
 coverage = "pytest tests/ --cov=event_bus --cov-report=term-missing"
 check-conda-first = "python scripts/check_conda_first.py"
-quality = { depends-on = ["check-conda-first", "lint", "format-check", "typecheck"] }
+lint-boundaries = "lint-imports"
+quality = { depends-on = ["check-conda-first", "lint", "format-check", "typecheck", "lint-boundaries"] }
 check = { depends-on = ["check-conda-first", "quality", "typecheck", "coverage"] }
 
 [tool.pytest.ini_options]
@@ -95,6 +98,22 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 warn_unused_ignores = true
+
+[tool.importlinter]
+root_package = "event_bus"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "event_bus never imports hummingbot (ADR 0001)"
+type = "forbidden"
+source_modules = ["event_bus"]
+forbidden_modules = ["hummingbot"]
+
+[[tool.importlinter.contracts]]
+name = "adr-0001-l0-leaf-independence"
+type = "forbidden"
+source_modules = ["event_bus"]
+forbidden_modules = ["data_type_primitives", "logger", "async_utils", "connector_utils", "rate_limit", "candles_feed", "liquidations_feed", "rate_oracle", "market_data", "market_connector", "market_simulator", "web_assistant", "remote_iface", "strategy_framework", "order_book", "user_stream_tracker"]
 
 [tool.coverage.run]
 branch = true
