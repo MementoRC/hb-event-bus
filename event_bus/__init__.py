@@ -6,6 +6,7 @@ from typing import Any
 from event_bus.__about__ import __version__
 from event_bus.bus import EventBus
 from event_bus.event_logger import EventLogger, LoggedEvent
+from event_bus.events import MarketEvent, OrderBookEvent
 from event_bus.listener import EventForwarder, EventListener, SourceInfoEventForwarder
 from event_bus.subscription import Handler, Subscription
 
@@ -21,6 +22,8 @@ __all__ = [
     "EventLogger",
     "Handler",
     "LoggedEvent",
+    "MarketEvent",
+    "OrderBookEvent",
     "SourceInfoEventForwarder",
     "Subscription",
     "SyncHandler",
