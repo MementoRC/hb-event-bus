@@ -85,6 +85,13 @@ Decorators for registering handlers:
 - `@Handler(bus)` — Registers a synchronous handler on the bus.
 - `@AsyncHandler(bus)` — Registers an asynchronous handler (coroutine) on the bus.
 
+### MarketEvent & OrderBookEvent
+
+Canonical event enums (mirroring `hummingbot/core/event/events.py`; values must stay identical):
+
+- `MarketEvent` — plain `Enum` of market event ids (e.g. `OrderFilled = 107`).
+- `OrderBookEvent` — `(int, Enum)` of order book event ids (`TradeEvent = 901`, `OrderBookDataSourceUpdateEvent = 904`).
+
 ---
 
 ## Strong References vs Weak References: Migration Note
