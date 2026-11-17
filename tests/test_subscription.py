@@ -14,6 +14,12 @@ def test_subscription_has_event_type_and_handler() -> None:
     assert sub.active is True
 
 
+def test_subscription_accepts_int_event_type() -> None:
+    sub = Subscription(event_type=101, handler=_noop, bus=object())
+    assert sub.event_type == 101
+    assert sub.active is True
+
+
 def test_subscription_cancel_makes_inactive() -> None:
     sub = Subscription(event_type="foo", handler=_noop, bus=object())
     sub.cancel()

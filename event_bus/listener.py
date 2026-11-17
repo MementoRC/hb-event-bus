@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from event_bus._types import EventKey
     from event_bus.bus import EventBus
 
 
@@ -26,7 +27,7 @@ class EventListener:
     __slots__ = ("current_event_type", "current_event_bus")
 
     def __init__(self) -> None:
-        self.current_event_type: str = ""
+        self.current_event_type: EventKey = ""
         self.current_event_bus: EventBus | None = None
 
     def __call__(self, payload: Any) -> None:
@@ -53,7 +54,7 @@ class SourceInfoEventForwarder(EventListener):
 
     __slots__ = ("_to_function",)
 
-    def __init__(self, to_function: Callable[[str, EventBus | None, Any], None]) -> None:
+    def __init__(self, to_function: Callable[[EventKey, EventBus | None, Any], None]) -> None:
         if not callable(to_function):
             raise TypeError(f"to_function must be callable, got {type(to_function).__name__!r}")
         super().__init__()

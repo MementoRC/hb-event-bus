@@ -17,6 +17,16 @@ def test_subscribe_returns_subscription_handle() -> None:
     assert sub.active is True
 
 
+def test_subscribe_int_key_receives_payload_on_publish() -> None:
+    bus = EventBus()
+    received: list[object] = []
+    sub = bus.subscribe(101, received.append)
+    assert sub.event_type == 101
+    bus.publish(101, "payload")
+    assert received == ["payload"]
+    assert bus.get_subscribers(101) == (sub,)
+
+
 def test_subscribe_distinct_handles_for_duplicate_subscriptions() -> None:
     bus = EventBus()
     handler = lambda p: None  # noqa: E731
