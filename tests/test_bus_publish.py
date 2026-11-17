@@ -56,6 +56,38 @@ def test_publish_with_empty_event_type_is_debug_logged(caplog: pytest.LogCapture
     # debug log emitted; no exception
 
 
+def test_publish_int_key_dispatches() -> None:
+    calls: list[object] = []
+    bus = EventBus()
+    bus.subscribe(101, calls.append)
+    bus.publish(101, "payload")
+    assert calls == ["payload"]
+
+
+def test_publish_int_and_str_keys_are_distinct() -> None:
+    int_calls: list[object] = []
+    str_calls: list[object] = []
+    bus = EventBus()
+    bus.subscribe(1, int_calls.append)
+    bus.subscribe("1", str_calls.append)
+    bus.publish(1, "i")
+    bus.publish("1", "s")
+    assert int_calls == ["i"]
+    assert str_calls == ["s"]
+
+
+def test_publish_int_zero_key_dispatches_and_is_not_empty(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls: list[object] = []
+    bus = EventBus()
+    bus.subscribe(0, calls.append)
+    with caplog.at_level(logging.DEBUG, logger="event_bus"):
+        bus.publish(0, "x")
+    assert calls == ["x"]
+    assert "empty event_type" not in caplog.text
+
+
 def test_publish_routes_async_call_eventlistener_via_schedule(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

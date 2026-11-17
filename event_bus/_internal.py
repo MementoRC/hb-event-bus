@@ -12,6 +12,8 @@ import logging
 import weakref
 from typing import TYPE_CHECKING, Any
 
+from event_bus._types import EventKey  # noqa: TC001  (runtime: typing.get_type_hints)
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
@@ -58,7 +60,7 @@ def _is_event_listener(obj: Any) -> bool:
 
 
 def invoke_sync_handlers(
-    event_type: str,
+    event_type: EventKey,
     payload: Any,
     handlers: Iterable[Callable[[Any], None]],
     *,
@@ -90,7 +92,7 @@ def invoke_sync_handlers(
 
 
 def schedule_async_handler(
-    event_type: str,
+    event_type: EventKey,
     payload: Any,
     handler: Callable[[Any], Awaitable[None]],
     *,
@@ -119,7 +121,7 @@ def schedule_async_handler(
 
 
 async def _run_async_handler(
-    event_type: str,
+    event_type: EventKey,
     payload: Any,
     handler: Callable[[Any], Awaitable[None]],
     bus: EventBus,

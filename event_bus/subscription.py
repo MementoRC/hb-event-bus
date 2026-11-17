@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from event_bus._types import EventKey  # noqa: TC001  (runtime: typing.get_type_hints)
+
 Handler = Callable[[Any], None | Awaitable[None]]
 SyncHandler = Callable[[Any], None]
 
@@ -18,8 +20,8 @@ class Subscription:
 
     __slots__ = ("_active", "bus", "event_type", "handler")
 
-    def __init__(self, *, event_type: str, handler: Handler, bus: Any) -> None:
-        self.event_type: str = event_type
+    def __init__(self, *, event_type: EventKey, handler: Handler, bus: Any) -> None:
+        self.event_type: EventKey = event_type
         self.handler: Handler = handler
         self.bus: Any = bus
         self._active: bool = True

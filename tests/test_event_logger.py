@@ -27,6 +27,16 @@ class TestEventLoggerBasics:
         assert log.events[0].payload == {"v": 1}
         assert log.events[0].timestamp > 0
 
+    async def test_attach_and_wait_for_int_key(self) -> None:
+        bus = EventBus()
+        log = EventLogger()
+        log.attach(bus, 101)
+        waiter = asyncio.ensure_future(log.wait_for(101, timeout=1.0))
+        await asyncio.sleep(0)
+        bus.publish(101, "p")
+        assert await waiter == "p"
+        assert log.events[0].name == 101
+
     def test_captures_multiple_event_names(self) -> None:
         bus = EventBus()
         log = EventLogger()

@@ -4,7 +4,7 @@ Captures events dispatched through an :class:`EventBus` into a bounded deque
 and supports awaiting specific events by name with a timeout.
 
 Port of ``hummingbot/core/event/event_logger.pyx`` (Cython) — adapted to the
-string-keyed pub/sub API introduced in Phase 1.
+``str | int`` keyed (``EventKey``) pub/sub API introduced in Phase 1.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from event_bus._types import EventKey, _reject_bool_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,7 +38,7 @@ class LoggedEvent:
         timestamp: ``time.monotonic()`` reading at capture time.
     """
 
-    name: str
+    name: EventKey
     payload: Any
     timestamp: float
 
@@ -67,9 +69,9 @@ class EventLogger:
         self._events: deque[LoggedEvent] = deque(maxlen=maxlen)
         self._subscriptions: list[Subscription] = []
         # event_name -> list of (asyncio.Event, payload_holder)
-        self._waiters: dict[str, list[tuple[asyncio.Event, list[Any]]]] = {}
+        self._waiters: dict[EventKey, list[tuple[asyncio.Event, list[Any]]]] = {}
 
-    def attach(self, bus: EventBus, *event_names: str) -> None:
+    def attach(self, bus: EventBus, *event_names: EventKey) -> None:
         """Subscribe to one or more event names on ``bus``.
 
         Each subscription is tracked internally so :meth:`detach` can release
@@ -107,7 +109,7 @@ class EventLogger:
         """Discard all captured events. Leaves subscriptions intact."""
         self._events.clear()
 
-    async def wait_for(self, event_name: str, *, timeout: float = 180.0) -> Any:
+    async def wait_for(self, event_name: EventKey, *, timeout: float = 180.0) -> Any:
         """Block until an event with ``event_name`` arrives; return its payload.
 
         Each call registers a fresh waiter so concurrent waits for the same
@@ -124,8 +126,10 @@ class EventLogger:
             The payload of the first matching event after the wait began.
 
         Raises:
+            TypeError: If ``event_name`` is a ``bool``.
             TimeoutError: If no matching event arrives within ``timeout``.
         """
+        _reject_bool_key(event_name)
         notifier = asyncio.Event()
         payload_holder: list[Any] = []
         self._waiters.setdefault(event_name, []).append((notifier, payload_holder))
@@ -141,7 +145,7 @@ class EventLogger:
                     self._waiters.pop(event_name, None)
         return payload_holder[0] if payload_holder else None
 
-    def _make_handler(self, name: str) -> Callable[[Any], None]:
+    def _make_handler(self, name: EventKey) -> Callable[[Any], None]:
         def handler(payload: Any) -> None:
             self._events.append(LoggedEvent(name=name, payload=payload, timestamp=time.monotonic()))
             waiters = self._waiters.get(name)

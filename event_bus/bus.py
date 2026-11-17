@@ -1,29 +1,36 @@
-"""EventBus — string-keyed publish/subscribe with sync and async dispatch."""
+"""EventBus — publish/subscribe keyed by ``str | int`` (EventKey), with sync and async dispatch."""
 
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Callable  # noqa: TC003  (runtime: typing.get_type_hints)
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
+from event_bus._types import EventKey, _reject_bool_key  # noqa: TC001  (runtime: typing.get_type_hints)
 from event_bus.listener import EventListener
 from event_bus.subscription import Subscription
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from event_bus.subscription import SyncHandler
 
 logger = logging.getLogger("event_bus")
 
 
 class EventBus:
-    """Central event bus: subscribe handlers to string event types and publish payloads.
+    """Central event bus: subscribe handlers to event types and publish payloads.
 
-    Storage: ``defaultdict[str, list[Subscription]]`` — insertion-order preserved,
-    strong references held until ``unsubscribe`` is called.
+    Event-type keys are ``str | int`` (:data:`~event_bus._types.EventKey`). Keys
+    compare by equality/hash, so ``1`` and ``"1"`` are distinct, and a non-int
+    Enum member (e.g. ``events.MarketEvent``, a plain Enum) is NOT equal to its
+    int value; publish and subscribe with the same key form (e.g. ``.value``).
+    ``bool`` keys are rejected with ``TypeError`` because ``True``/``False``
+    would alias the ``1``/``0`` channels.
+
+    Storage: ``defaultdict[EventKey, list[Subscription]]`` — insertion-order
+    preserved, strong references held until ``unsubscribe`` is called.
 
     Thread-safety: NOT thread-safe; callers must synchronise external access if
     the bus is shared across threads.
@@ -33,18 +40,19 @@ class EventBus:
 
     def __init__(self, *, name: str = "default") -> None:
         self.name: str = name
-        self._subscriptions: dict[str, list[Subscription]] = defaultdict(list)
+        self._subscriptions: dict[EventKey, list[Subscription]] = defaultdict(list)
 
     # ------------------------------------------------------------------
     # Public subscription API
     # ------------------------------------------------------------------
 
-    def subscribe(self, event_type: str, handler: Callable[[Any], Any]) -> Subscription:
+    def subscribe(self, event_type: EventKey, handler: Callable[[Any], Any]) -> Subscription:
         """Register *handler* for *event_type* and return an opaque :class:`Subscription`.
 
         Raises:
-            TypeError: if *handler* is not callable.
+            TypeError: if *event_type* is a ``bool`` or *handler* is not callable.
         """
+        _reject_bool_key(event_type)
         if not callable(handler):
             raise TypeError(f"handler must be callable, got {type(handler).__name__!r}")
         sub = Subscription(event_type=event_type, handler=handler, bus=self)
@@ -63,19 +71,24 @@ class EventBus:
         # Always mark inactive so repeated calls are harmless.
         subscription._active = False
 
-    def get_subscribers(self, event_type: str) -> tuple[Subscription, ...]:
-        """Return a snapshot tuple of active subscriptions for *event_type*."""
+    def get_subscribers(self, event_type: EventKey) -> tuple[Subscription, ...]:
+        """Return a snapshot tuple of active subscriptions for *event_type*.
+
+        Raises:
+            TypeError: if *event_type* is a ``bool``.
+        """
+        _reject_bool_key(event_type)
         return tuple(self._subscriptions.get(event_type, ()))
 
     # ------------------------------------------------------------------
     # Public dispatch API
     # ------------------------------------------------------------------
 
-    def publish(self, event_type: str, payload: Any = None) -> None:
+    def publish(self, event_type: EventKey, payload: Any = None) -> None:
         """Synchronous dispatch: invoke sync handlers inline; schedule async handlers.
 
         Args:
-            event_type: The string key identifying the event channel.
+            event_type: The ``str | int`` key identifying the event channel.
             payload:    Arbitrary value forwarded to each handler.
 
         Behaviour:
@@ -88,8 +101,12 @@ class EventBus:
           emitted (once per bus instance) and the handler is silently skipped.
         - An empty *event_type* logs a DEBUG message and dispatches to no handlers
           (empty string keys are never subscribed to in normal usage).
+
+        Raises:
+            TypeError: if *event_type* is a ``bool``.
         """
-        if not event_type:
+        _reject_bool_key(event_type)
+        if event_type == "":
             logger.debug("publish called with empty event_type")
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
         sync_handlers: list[SyncHandler] = []
@@ -101,11 +118,11 @@ class EventBus:
                 sync_handlers.append(handler)  # type: ignore[arg-type]
         invoke_sync_handlers(event_type, payload, sync_handlers, bus=self)
 
-    async def apublish(self, event_type: str, payload: Any = None) -> None:
+    async def apublish(self, event_type: EventKey, payload: Any = None) -> None:
         """Async dispatch: await async handlers sequentially; invoke sync handlers inline.
 
         Args:
-            event_type: The string key identifying the event channel.
+            event_type: The ``str | int`` key identifying the event channel.
             payload:    Arbitrary value forwarded to each handler.
 
         Behaviour:
@@ -118,8 +135,12 @@ class EventBus:
         - Exceptions from any handler are logged and isolated — subsequent handlers
           still run.
         - An empty *event_type* logs a DEBUG message and dispatches to no handlers.
+
+        Raises:
+            TypeError: if *event_type* is a ``bool``.
         """
-        if not event_type:
+        _reject_bool_key(event_type)
+        if event_type == "":
             logger.debug("apublish called with empty event_type")
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
         for sub in subs:

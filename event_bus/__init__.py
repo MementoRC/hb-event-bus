@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from event_bus.__about__ import __version__
+from event_bus._types import EventKey
 from event_bus.bus import EventBus
 from event_bus.event_logger import EventLogger, LoggedEvent
 from event_bus.events import MarketEvent, OrderBookEvent
@@ -18,6 +19,7 @@ __all__ = [
     "AsyncHandler",
     "EventBus",
     "EventForwarder",
+    "EventKey",
     "EventListener",
     "EventLogger",
     "Handler",

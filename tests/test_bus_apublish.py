@@ -19,6 +19,19 @@ async def test_apublish_invokes_sync_handlers_inline() -> None:
     assert calls == [("sync", "x")]
 
 
+async def test_apublish_int_key_dispatches_sync_and_async() -> None:
+    calls: list[tuple[str, object]] = []
+
+    async def a(p: object) -> None:
+        calls.append(("async", p))
+
+    bus = EventBus()
+    bus.subscribe(101, a)
+    bus.subscribe(101, lambda p: calls.append(("sync", p)))
+    await bus.apublish(101, "x")
+    assert calls == [("async", "x"), ("sync", "x")]
+
+
 async def test_apublish_awaits_async_handlers_sequentially() -> None:
     calls: list[tuple[str, object]] = []
 

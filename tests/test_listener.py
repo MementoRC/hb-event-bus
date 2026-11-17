@@ -38,6 +38,17 @@ class TestEventListenerBase:
         assert captured == ["hello"]
 
 
+class TestIntEventKey:
+    def test_source_info_forwarder_receives_int_key(self) -> None:
+        bus = EventBus(name="test")
+        captured: list[tuple[Any, Any, Any]] = []
+        fwd = SourceInfoEventForwarder(lambda t, b, p: captured.append((t, b, p)))
+        bus.subscribe(101, fwd)
+        bus.publish(101, "payload")
+        assert captured == [(101, bus, "payload")]
+        assert fwd.current_event_type == 101
+
+
 class TestEventForwarder:
     def test_calls_to_function_with_payload(self) -> None:
         captured: list[Any] = []
