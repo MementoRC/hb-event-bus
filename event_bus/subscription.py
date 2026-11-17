@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from event_bus._types import EventKey
+from event_bus._types import EventKey  # noqa: TC001  (runtime: typing.get_type_hints)
 
 Handler = Callable[[Any], None | Awaitable[None]]
 SyncHandler = Callable[[Any], None]

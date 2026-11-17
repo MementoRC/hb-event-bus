@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Callable  # noqa: TC003  (runtime: typing.get_type_hints)
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
+from event_bus._types import EventKey, _reject_bool_key  # noqa: TC001  (runtime: typing.get_type_hints)
 from event_bus.listener import EventListener
 from event_bus.subscription import Subscription
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from event_bus._types import EventKey
     from event_bus.subscription import SyncHandler
 
 logger = logging.getLogger("event_bus")
@@ -27,6 +26,8 @@ class EventBus:
     compare by equality/hash, so ``1`` and ``"1"`` are distinct, and a non-int
     Enum member (e.g. ``events.MarketEvent``, a plain Enum) is NOT equal to its
     int value; publish and subscribe with the same key form (e.g. ``.value``).
+    ``bool`` keys are rejected with ``TypeError`` because ``True``/``False``
+    would alias the ``1``/``0`` channels.
 
     Storage: ``defaultdict[EventKey, list[Subscription]]`` — insertion-order
     preserved, strong references held until ``unsubscribe`` is called.
@@ -49,8 +50,9 @@ class EventBus:
         """Register *handler* for *event_type* and return an opaque :class:`Subscription`.
 
         Raises:
-            TypeError: if *handler* is not callable.
+            TypeError: if *event_type* is a ``bool`` or *handler* is not callable.
         """
+        _reject_bool_key(event_type)
         if not callable(handler):
             raise TypeError(f"handler must be callable, got {type(handler).__name__!r}")
         sub = Subscription(event_type=event_type, handler=handler, bus=self)
@@ -70,7 +72,12 @@ class EventBus:
         subscription._active = False
 
     def get_subscribers(self, event_type: EventKey) -> tuple[Subscription, ...]:
-        """Return a snapshot tuple of active subscriptions for *event_type*."""
+        """Return a snapshot tuple of active subscriptions for *event_type*.
+
+        Raises:
+            TypeError: if *event_type* is a ``bool``.
+        """
+        _reject_bool_key(event_type)
         return tuple(self._subscriptions.get(event_type, ()))
 
     # ------------------------------------------------------------------
@@ -94,7 +101,11 @@ class EventBus:
           emitted (once per bus instance) and the handler is silently skipped.
         - An empty *event_type* logs a DEBUG message and dispatches to no handlers
           (empty string keys are never subscribed to in normal usage).
+
+        Raises:
+            TypeError: if *event_type* is a ``bool``.
         """
+        _reject_bool_key(event_type)
         if event_type == "":
             logger.debug("publish called with empty event_type")
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
@@ -124,7 +135,11 @@ class EventBus:
         - Exceptions from any handler are logged and isolated — subsequent handlers
           still run.
         - An empty *event_type* logs a DEBUG message and dispatches to no handlers.
+
+        Raises:
+            TypeError: if *event_type* is a ``bool``.
         """
+        _reject_bool_key(event_type)
         if event_type == "":
             logger.debug("apublish called with empty event_type")
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety

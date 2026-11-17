@@ -4,7 +4,7 @@ Captures events dispatched through an :class:`EventBus` into a bounded deque
 and supports awaiting specific events by name with a timeout.
 
 Port of ``hummingbot/core/event/event_logger.pyx`` (Cython) — adapted to the
-string-keyed pub/sub API introduced in Phase 1.
+``str | int`` keyed (``EventKey``) pub/sub API introduced in Phase 1.
 """
 
 from __future__ import annotations
@@ -17,10 +17,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from event_bus._types import EventKey, _reject_bool_key
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from event_bus._types import EventKey
     from event_bus.bus import EventBus
     from event_bus.subscription import Subscription
 
@@ -125,8 +126,10 @@ class EventLogger:
             The payload of the first matching event after the wait began.
 
         Raises:
+            TypeError: If ``event_name`` is a ``bool``.
             TimeoutError: If no matching event arrives within ``timeout``.
         """
+        _reject_bool_key(event_name)
         notifier = asyncio.Event()
         payload_holder: list[Any] = []
         self._waiters.setdefault(event_name, []).append((notifier, payload_holder))

@@ -12,10 +12,11 @@ import logging
 import weakref
 from typing import TYPE_CHECKING, Any
 
+from event_bus._types import EventKey  # noqa: TC001  (runtime: typing.get_type_hints)
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
-    from event_bus._types import EventKey
     from event_bus.bus import EventBus
 
 logger = logging.getLogger("event_bus")
