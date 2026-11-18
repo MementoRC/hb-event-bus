@@ -10,7 +10,7 @@ import asyncio
 import inspect
 import logging
 import weakref
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from event_bus._types import EventKey  # noqa: TC001  (runtime: typing.get_type_hints)
 
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
     from event_bus.bus import EventBus
+    from event_bus.listener import EventListener
 
 logger = logging.getLogger("event_bus")
 
@@ -47,7 +48,7 @@ def _is_async_handler(handler: Any) -> bool:
     return inspect.iscoroutinefunction(call)
 
 
-def _is_event_listener(obj: Any) -> bool:
+def _is_event_listener(obj: Any) -> TypeGuard[EventListener]:
     """Lazy isinstance check for EventListener; avoids circular import.
 
     listener.py and _internal.py are both imported by bus.py; importing
@@ -75,8 +76,8 @@ def invoke_sync_handlers(
     """
     for handler in handlers:
         if _is_event_listener(handler):
-            handler.current_event_type = event_type  # type: ignore[attr-defined]
-            handler.current_event_bus = bus  # type: ignore[attr-defined]
+            handler.current_event_type = event_type
+            handler.current_event_bus = bus
         try:
             result = handler(payload)
             if inspect.iscoroutine(result):
@@ -128,8 +129,8 @@ async def _run_async_handler(
 ) -> None:
     """Inject EventListener context attrs, await handler, isolate any exception."""
     if _is_event_listener(handler):
-        handler.current_event_type = event_type  # type: ignore[attr-defined]
-        handler.current_event_bus = bus  # type: ignore[attr-defined]
+        handler.current_event_type = event_type
+        handler.current_event_bus = bus
     try:
         await handler(payload)
     except Exception:  # noqa: BLE001

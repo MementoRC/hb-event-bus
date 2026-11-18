@@ -92,6 +92,14 @@ Canonical event enums (mirroring `hummingbot/core/event/events.py`; values must 
 - `MarketEvent` — plain `Enum` of market event ids (e.g. `OrderFilled = 107`).
 - `OrderBookEvent` — `(int, Enum)` of order book event ids (`TradeEvent = 901`, `OrderBookDataSourceUpdateEvent = 904`).
 
+### Event keys
+
+Event keys are `EventKey = str | int`.
+
+- `1` and `"1"` are distinct keys.
+- `bool` keys raise `TypeError` (`True`/`False` would alias the `1`/`0` channels).
+- `EventKey` is a PEP 695 alias, so `isinstance(x, EventKey)` raises `TypeError`. For introspection use `typing.get_args(EventKey.__value__)` (gives `(str, int)`); for runtime checks use `isinstance(x, (str, int)) and not isinstance(x, bool)`.
+
 ---
 
 ## Strong References vs Weak References: Migration Note

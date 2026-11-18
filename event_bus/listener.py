@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable  # noqa: TC003  (runtime: typing.get_type_hints)
+from typing import Any
 
 from event_bus._types import EventKey  # noqa: TC001  (runtime: typing.get_type_hints)
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from event_bus.bus import EventBus
+from event_bus.bus import EventBus  # noqa: TC001  (runtime: typing.get_type_hints)
 
 
 class EventListener:

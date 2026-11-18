@@ -13,17 +13,14 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import Callable  # noqa: TC003  (runtime: typing.get_type_hints)
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from event_bus._types import EventKey, _reject_bool_key
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from event_bus.bus import EventBus
-    from event_bus.subscription import Subscription
+from event_bus._types import EventKey, _reject_bool_key  # noqa: TC001  (runtime: typing.get_type_hints)
+from event_bus.bus import EventBus  # noqa: TC001  (runtime: typing.get_type_hints)
+from event_bus.subscription import Subscription  # noqa: TC001  (runtime: typing.get_type_hints)
 
 logger = logging.getLogger("event_bus")
 
