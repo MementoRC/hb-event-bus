@@ -8,9 +8,13 @@ from collections.abc import Callable  # noqa: TC003  (runtime: typing.get_type_h
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
-from event_bus._internal import _is_async_handler, invoke_sync_handlers, schedule_async_handler
+from event_bus._internal import (
+    _is_async_handler,
+    _is_event_listener,
+    invoke_sync_handlers,
+    schedule_async_handler,
+)
 from event_bus._types import EventKey, _reject_bool_key  # noqa: TC001  (runtime: typing.get_type_hints)
-from event_bus.listener import EventListener
 from event_bus.subscription import Subscription
 
 if TYPE_CHECKING:
@@ -145,7 +149,7 @@ class EventBus:
         subs = list(self._subscriptions.get(event_type, []))  # snapshot for re-entrancy safety
         for sub in subs:
             handler = sub.handler
-            if isinstance(handler, EventListener):
+            if _is_event_listener(handler):
                 handler.current_event_type = event_type
                 handler.current_event_bus = self
             try:

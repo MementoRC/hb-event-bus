@@ -1,7 +1,12 @@
 """Shared type aliases for event_bus."""
 
 type EventKey = str | int
-"""Event-type key: compared by equality/hash, so ``1`` and ``"1"`` are distinct keys."""
+"""Event-type key: ``str | int``, compared by equality/hash, so ``1`` and ``"1"`` are distinct keys.
+
+``bool`` keys raise ``TypeError``. ``EventKey`` is a PEP 695 alias: ``isinstance(x, EventKey)``
+raises ``TypeError``. Introspect with ``typing.get_args(EventKey.__value__)`` (``(str, int)``);
+for runtime checks use ``isinstance(x, (str, int)) and not isinstance(x, bool)``.
+"""
 
 
 def _reject_bool_key(event_type: object) -> None:
