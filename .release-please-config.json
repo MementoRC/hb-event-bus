@@ -24,5 +24,6 @@
       ]
     }
   },
+  "bootstrap-sha": "fa8844684c3d827104d6e1590ed0aa0ec3460535",
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
 }
