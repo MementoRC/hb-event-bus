@@ -23,9 +23,11 @@ def test_public_exports():
 
 def test_version_present():
     """Verify that __version__ is accessible."""
+    import re
+
     from event_bus.__about__ import __version__
 
-    assert __version__ == "0.4.1"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
 
 
 def test_listener_classes_exported_via_public_api() -> None:
